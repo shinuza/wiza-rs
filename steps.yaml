@@ -1,0 +1,33 @@
+steps:
+  - name: "Check internet connectivity"
+    type: script
+    pre_script: "ping -c 1 google.com >/dev/null 2>&1"
+    script: "echo 'Internet looks good!'"
+    post_script: "echo 'Step complete.'"
+
+  - name: "Append custom line to .bashrc"
+    type: add_text
+    pre_script: "test -f ~/.bashrc"
+    post_script: "echo 'Remember to reload your shell later.'"
+    params:
+      file: "/home/$USER/.bashrc"
+      content: "export PATH=\"$HOME/.local/bin:$PATH\""
+
+  - name: "Configure Git"
+    type: git_config
+    params:
+      default_editor: "vim"
+
+  - name: "Install common dev tools"
+    type: app_selection
+    params:
+      apps:
+        - name: "Neovim"
+          version: "0.9"
+          install: "sudo apt update && sudo apt install -y neovim"
+        - name: "Git"
+          version: "2.x"
+          install: "sudo apt update && sudo apt install -y git"
+        - name: "htop"
+          version: "latest"
+          install: "sudo apt update && sudo apt install -y htop"
