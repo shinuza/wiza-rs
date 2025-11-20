@@ -1,0 +1,52 @@
+stages:
+  - build
+  - release
+
+variables:
+  CARGO_TERM_COLOR: always
+
+# Build the optimized release binary
+build:release:
+  stage: build
+  image: rust:1.81
+  script:
+    - rustc --version
+    - cargo build --release
+  artifacts:
+    paths:
+      - target/release/wiza-rs
+    expire_in: 1 week
+  only:
+    - tags
+
+# Package the binary + steps.yaml into a zip and create a GitLab Release
+release:zip:
+  stage: release
+  image: debian:stable-slim
+  needs:
+    - job: build:release
+  script:
+    - apt-get update && apt-get install -y zip ca-certificates
+    - mkdir -p dist
+    # Copy the compiled binary from the previous job
+    - cp target/release/wiza-rs dist/
+    # Include the example steps.yaml if present in the repo root
+    - |
+      if [ -f steps.yaml ]; then
+        cp steps.yaml dist/
+      else
+        echo "steps.yaml not found at repo root; creating empty placeholder";
+        touch dist/steps.yaml;
+      fi
+    - cd dist
+    - zip "wiza-rs-${CI_COMMIT_TAG}-linux-amd64.zip" *
+  artifacts:
+    paths:
+      - dist/wiza-rs-${CI_COMMIT_TAG}-linux-amd64.zip
+    expire_in: 1 year
+  release:
+    tag_name: "$CI_COMMIT_TAG"
+    name: "wiza-rs $CI_COMMIT_TAG"
+    description: "Automated release for $CI_COMMIT_TAG"
+  only:
+    - tags

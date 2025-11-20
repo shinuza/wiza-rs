@@ -2,20 +2,6 @@ use crate::model::*;
 use anyhow::{anyhow, Context, Result};
 use std::process::{Command, Output};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StepStatus {
-    Pending,
-    Running,
-    Skipped,
-    Success,
-    Failed,
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct StepRuntime {
-    pub status: StepStatus,
-    pub log: String,
-}
 
 /// Run a command through `bash -c` and capture output.
 pub fn run_command(cmd: &str) -> Result<Output> {
@@ -93,13 +79,15 @@ pub fn run_step(step: &Step, runtime: &mut StepRuntime) -> Result<()> {
                 .push_str(&format!("\n--- add_text to {} ---\n", params.file));
             run_add_text(params, &mut runtime.log)?;
         }
-        StepKind::GitConfig { params } => {
-            runtime.log.push_str("\n--- git_config ---\n");
-            run_git_config(params, &mut runtime.log)?;
+        StepKind::GitConfig { params: _ } => {
+            // For git_config, the interactive UI (ratatui) is responsible for
+            // gathering values and invoking the actual configuration logic.
+            runtime.log.push_str("\n--- git_config (handled by TUI) ---\n");
         }
-        StepKind::AppSelection { params } => {
-            runtime.log.push_str("\n--- app_selection ---\n");
-            run_app_selection(params, &mut runtime.log)?;
+        StepKind::AppSelection { params: _ } => {
+            // For app_selection, the interactive UI (ratatui) is responsible for
+            // gathering the selection and invoking the actual installation logic.
+            runtime.log.push_str("\n--- app_selection (handled by TUI) ---\n");
         }
     }
 
@@ -141,28 +129,28 @@ fn run_add_text(params: &AddTextParams, log: &mut String) -> Result<()> {
 }
 
 /// Task: git config (name, email, editor).
-fn run_git_config(params: &GitConfigParams, log: &mut String) -> Result<()> {
-    use dialoguer::Input;
+/// The ratatui layer gathers the values; this helper simply applies them.
+pub fn apply_git_config(
+    params: &GitConfigParams,
+    name: &str,
+    email: &str,
+    editor: &str,
+    log: &mut String,
+) -> Result<()> {
+    let name = name.trim();
+    let email = email.trim();
+    let editor = if editor.trim().is_empty() {
+        params.default_editor.trim()
+    } else {
+        editor.trim()
+    };
 
-    // We temporarily drop raw mode when used from TUI.
-    log.push_str("Entering interactive git configuration prompts...\n");
-
-    // Ask for user data in the normal terminal.
-    let name: String = Input::new()
-        .with_prompt("Git user.name")
-        .interact_text()
-        .context("Failed to read git user.name")?;
-
-    let email: String = Input::new()
-        .with_prompt("Git user.email")
-        .interact_text()
-        .context("Failed to read git user.email")?;
-
-    let editor: String = Input::new()
-        .with_prompt("Preferred editor")
-        .default(params.default_editor.clone())
-        .interact_text()
-        .context("Failed to read editor")?;
+    if name.is_empty() {
+        return Err(anyhow!("Git user.name cannot be empty"));
+    }
+    if email.is_empty() {
+        return Err(anyhow!("Git user.email cannot be empty"));
+    }
 
     let commands = vec![
         format!("git config --global user.name '{}'", name.replace('\'', "\\'")),
@@ -189,43 +177,35 @@ fn run_git_config(params: &GitConfigParams, log: &mut String) -> Result<()> {
 }
 
 /// Task: app selection and installation.
-/// Uses dialoguer::MultiSelect for simple TUI-ish selection.
-fn run_app_selection(params: &AppSelectionParams, log: &mut String) -> Result<()> {
-    use dialoguer::MultiSelect;
-
-    let mut items = Vec::new();
-    for app in &params.apps {
-        items.push(format!("{} ({})", app.name, app.version));
-    }
-
-    if items.is_empty() {
+/// The ratatui layer is responsible for gathering which indices are selected; this
+/// helper only performs the installations and logs the results.
+pub fn apply_app_selection(
+    params: &AppSelectionParams,
+    selection: &[usize],
+    log: &mut String,
+) -> Result<()> {
+    if params.apps.is_empty() {
         log.push_str("No apps defined in this step.\n");
         return Ok(());
     }
-
-    log.push_str("Opening app selection menu in terminal...\n");
-    let selection = MultiSelect::new()
-        .with_prompt("Select apps to install (space to select, enter to confirm)")
-        .items(&items)
-        .interact()
-        .context("Failed during app selection")?;
 
     if selection.is_empty() {
         log.push_str("No apps selected.\n");
         return Ok(());
     }
 
-    for idx in selection {
-        let app = &params.apps[idx];
-        log.push_str(&format!(
-            "Installing {} ({}) using: {}\n",
-            app.name, app.version, app.install
-        ));
-        let out = run_command(&app.install)?;
-        append_output(log, &app.install, &out);
-        if !out.status.success() {
-            log.push_str(&format!("Installation of {} failed.\n", app.name));
-            // continue to attempt next app, but keep note the failure.
+    for &idx in selection {
+        if let Some(app) = params.apps.get(idx) {
+            log.push_str(&format!(
+                "Installing {} ({}) using: {}\n",
+                app.name, app.version, app.install
+            ));
+            let out = run_command(&app.install)?;
+            append_output(log, &app.install, &out);
+            if !out.status.success() {
+                log.push_str(&format!("Installation of {} failed.\n", app.name));
+                // continue to attempt next app, but keep note the failure.
+            }
         }
     }
 

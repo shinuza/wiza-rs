@@ -39,6 +39,22 @@ pub enum StepKind {
     AppSelection { params: AppSelectionParams },
 }
 
+#[derive(Debug, Clone, Default, Copy, PartialEq, Eq)]
+pub enum StepStatus {
+    #[default]
+    Pending,
+    Running,
+    Skipped,
+    Success,
+    Failed,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct StepRuntime {
+    pub status: StepStatus,
+    pub log: String,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct AddTextParams {
     pub file: String,
