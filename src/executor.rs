@@ -1,6 +1,6 @@
 use crate::model::*;
 use anyhow::{anyhow, Context, Result};
-use std::process::{Command, Output};
+use std::process::{Command, ExitStatus, Output};
 
 
 /// Run a command through `bash -c` and capture output.
@@ -11,6 +11,18 @@ pub fn run_command(cmd: &str) -> Result<Output> {
         .output()
         .with_context(|| format!("Failed to execute command: {}", cmd))?;
     Ok(output)
+}
+
+/// Run a command through `bash -c` and stream output directly to the terminal.
+/// This is useful for long-running installs (e.g. apt-get) where we want
+/// to see progress in real time rather than only after completion.
+pub fn run_command_streaming(cmd: &str) -> Result<ExitStatus> {
+    let status = Command::new("bash")
+        .arg("-c")
+        .arg(cmd)
+        .status()
+        .with_context(|| format!("Failed to execute command: {}", cmd))?;
+    Ok(status)
 }
 
 fn append_output(log: &mut String, label: &str, out: &Output) {
@@ -200,9 +212,8 @@ pub fn apply_app_selection(
                 "Installing {} ({}) using: {}\n",
                 app.name, app.version, app.install
             ));
-            let out = run_command(&app.install)?;
-            append_output(log, &app.install, &out);
-            if !out.status.success() {
+            let status = run_command_streaming(&app.install)?;
+            if !status.success() {
                 log.push_str(&format!("Installation of {} failed.\n", app.name));
                 // continue to attempt next app, but keep note the failure.
             }
