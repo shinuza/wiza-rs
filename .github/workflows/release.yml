@@ -30,14 +30,20 @@ jobs:
       - name: Show Rust version
         run: rustc --version
 
-      - name: Build release
-        run: cargo build --release
+      - name: Install musl tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
 
-      - name: Upload release binary artifact
+      - name: Add musl target
+        run: rustup target add x86_64-unknown-linux-musl
+
+      - name: Build release (musl)
+        run: cargo build --release --target x86_64-unknown-linux-musl
+
+      - name: Upload release binary artifact (musl)
         uses: actions/upload-artifact@v4
         with:
           name: wiza-rs-binary
-          path: target/release/wiza-rs
+          path: target/x86_64-unknown-linux-musl/release/wiza-rs
 
   release:
     name: Package and create GitHub Release
